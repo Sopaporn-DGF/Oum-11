@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <title>AR Dino Adventure | Hiro Marker</title>
+  <meta name="theme-color" content="#071626">
+  <!-- ใช้ A-Frame + AR.js สำหรับตรวจจับ Hiro Marker -->
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
+  <style>
+    :root{color-scheme:dark;--dark:#071626;--ink:#f5fafc;--aqua:#73f4c5;--line:rgba(255,255,255,.13)}
+    *{box-sizing:border-box}
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--dark);font-family:system-ui,-apple-system,'Segoe UI',Tahoma,sans-serif}
+    a-scene{position:fixed!important;inset:0!important;width:100%!important;height:100%!important}
+    .hud{position:fixed;inset:0;z-index:30;pointer-events:none;color:var(--ink);display:flex;flex-direction:column;justify-content:space-between}
+    .top{padding:max(18px,env(safe-area-inset-top)) 16px 0;display:flex;gap:10px;justify-content:space-between;align-items:flex-start}
+    .brand,.status,.controls,.tips,.markerlink{background:rgba(7,22,38,.87);border:1px solid var(--line);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 8px 35px #0004}
+    .brand{border-radius:18px;padding:10px 14px;min-width:0}
+    .brand h1{font-size:clamp(17px,3.5vw,22px);margin:0;line-height:1.2;letter-spacing:.2px}
+    .brand small{display:block;color:#abc5d2;font-size:11px;letter-spacing:1.2px;margin-top:4px;font-weight:700}
+    .status{border-radius:50px;display:flex;align-items:center;gap:7px;padding:12px 13px;font-size:12px;font-weight:700;max-width:51%}
+    .dot{width:9px;height:9px;border-radius:50%;background:#f5c56d;flex:none;box-shadow:0 0 10px #f5c56d99}
+    .status.found .dot{background:#72f1ba;box-shadow:0 0 12px #72f1ba}
+    .status.error .dot{background:#fb817a;box-shadow:0 0 12px #fb817a}
+    .status span:last-child{min-width:0;overflow-wrap:anywhere}
+    .middle{display:flex;align-items:center;flex-direction:column;gap:10px;margin:auto 0;transition:opacity .25s}
+    .middle.hidden{opacity:0;visibility:hidden}
+    .target{width:118px;height:118px;border:2px dashed #ffffffaa;border-radius:22px;display:grid;place-items:center;box-shadow:0 0 0 7px #00000016;position:relative}
+    .target:before,.target:after{content:'';position:absolute;background:#7df5c9;border-radius:3px}
+    .target:before{width:32px;height:3px}.target:after{height:32px;width:3px}
+    .tips{padding:10px 15px;border-radius:15px;text-align:center;max-width:87vw;font-size:12px;line-height:1.55;color:#d8e8ef}
+    .bottom{padding:0 14px max(16px,env(safe-area-inset-bottom));display:flex;justify-content:center}
+    .controls{pointer-events:auto;border-radius:22px;padding:14px;width:min(100%,500px);display:flex;flex-direction:column;gap:12px}
+    .speed-line{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;font-weight:700}
+    .speed-line output{font-weight:800;background:#133949;color:#7ff6c8;padding:5px 12px;border-radius:10px;font-variant-numeric:tabular-nums}
+    .range-wrap{display:flex;align-items:center;gap:11px;font-size:11px;color:#a4c5d0;font-weight:700}
+    input[type=range]{appearance:none;-webkit-appearance:none;width:100%;height:9px;border-radius:20px;background:linear-gradient(90deg,#65e7a9,#189ad9);outline:none;cursor:pointer;touch-action:none}
+    input[type=range]::-webkit-slider-thumb{appearance:none;width:24px;height:24px;background:#fff;border:4px solid #4bd9b2;border-radius:50%;box-shadow:0 2px 7px #0006}
+    input[type=range]::-moz-range-thumb{width:18px;height:18px;background:#fff;border:4px solid #4bd9b2;border-radius:50%}
+    .buttons{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+    button{appearance:none;border:1px solid #ffffff21;color:#fff;background:#18364a;padding:11px 5px;border-radius:13px;min-height:51px;font-family:inherit;font-weight:800;font-size:clamp(12px,3.3vw,15px);cursor:pointer;touch-action:manipulation;transition:transform .12s,background .2s}
+    button:active{transform:scale(.96)}button:focus-visible,a:focus-visible{outline:3px solid #93ffdc;outline-offset:2px}
+    button.primary{color:#062d29;background:linear-gradient(135deg,#7cffc4,#46d7ab);border:0}
+    button.sky{background:linear-gradient(135deg,#228dd4,#6b65e9);border:0}
+    button.active{box-shadow:0 0 0 2px #a7eafe inset}
+    button:disabled{opacity:.56;cursor:default}
+    .info{display:flex;align-items:center;gap:10px;justify-content:space-between;font-size:11px;color:#afc6d5}
+    .markerlink{pointer-events:auto;text-decoration:none;color:#adf5d6;border-radius:10px;padding:7px 9px;white-space:nowrap;border-color:#3a6d6e}
+    .hint{max-width:260px;line-height:1.45}
+    #flash{position:fixed;top:28%;left:50%;transform:translateX(-50%);background:#072b3ce8;border:1px solid #81f7c5;border-radius:40px;padding:11px 18px;color:white;font-weight:700;opacity:0;transition:opacity .22s;white-space:nowrap;pointer-events:none;z-index:40;font-size:13px}
+    #flash.show{opacity:1}
+    @media(max-height:580px){.top{padding-top:8px}.target{width:70px;height:70px}.tips{font-size:11px;padding:6px 9px}.controls{padding:9px;gap:7px}.bottom{padding-bottom:8px}.brand{padding:7px 10px}}
+    @media(orientation:landscape) and (max-height:520px){.middle{display:none}.top{max-width:50%}.bottom{justify-content:flex-end;position:absolute;right:0;bottom:0;width:52%}.buttons button{min-height:39px}}
+  </style>
+</head>
+<body>
+  <!-- ฉาก AR : ไดโนเสาร์ผูกกับ Hiro marker ไม่ใช้โมเดลภายนอก -->
+  <a-scene id="arScene" embedded vr-mode-ui="enabled: false"
+    renderer="antialias: true; colorManagement: true; alpha: true"
+    arjs="sourceType: webcam; debugUIEnabled: false;">
+    <a-marker id="hiroMarker" preset="hiro" emitevents="true" smooth="true"
+      smooth-count="5" smooth-tolerance="0.01" smooth-threshold="2">
+      <a-light type="ambient" intensity="1.1" color="#ffffff"></a-light>
+      <a-light type="directional" intensity="1.2" position="-1 3 2"></a-light>
+
+      <!-- เงาของไดโนเสาร์บนพื้น marker -->
+      <a-circle position="0 0.008 0" rotation="-90 0 0" radius="0.47"
+        material="color:#082a30;transparent:true;opacity:.26;side:double;depthWrite:false"></a-circle>
+      <a-ring radius-inner="0.49" radius-outer="0.505" position="0 .005 0" rotation="-90 0 0"
+        material="color:#53dfc8;transparent:true;opacity:.75;side:double"></a-ring>
+
+      <!-- การขยับทั้งตัว: วิ่ง กระโดด บิน -->
+      <a-entity id="dinoRoot" position="0 0 0" scale="0.78 0.78 0.78">
+        <a-entity id="dinoBody">
+          <!-- หาง -->
+          <a-entity id="tail" position="-.25 .49 0">
+            <a-cone position="-.31 -.05 0" rotation="0 0 90" height=".75"
+              radius-bottom=".145" radius-top=".015" color="#20a77d"></a-cone>
+            <a-cone position="-.62 -.09 0" rotation="0 0 90" height=".24"
+              radius-bottom=".052" radius-top=".005" color="#43dca2"></a-cone>
+            <a-cone position="-.34 .09 0" height=".14" radius-bottom=".085" radius-top="0" color="#b4f06a"></a-cone>
+            <a-cone position="-.48 .035 0" height=".12" radius-bottom=".06" radius-top="0" color="#b4f06a"></a-cone>
+          </a-entity>
+          <!-- ขาหลัง สองข้าง (หมุนแกว่งด้วย JavaScript) -->
+          <a-entity id="legFar" position="-.08 .40 -.18">
+            <a-sphere position="0 -.105 0" scale=".125 .20 .12" color="#209c77"></a-sphere>
+            <a-sphere position=".085 -.295 .015" scale=".18 .065 .12" color="#21996e"></a-sphere>
+            <a-cone position=".20 -.322 -.05" rotation="0 0 -92" height=".09" radius-bottom=".033" radius-top="0" color="#fff1c9"></a-cone>
+            <a-cone position=".20 -.322 .04" rotation="0 0 -92" height=".09" radius-bottom=".033" radius-top="0" color="#fff1c9"></a-cone>
+          </a-entity>
+          <a-entity id="legNear" position="-.08 .40 .18">
+            <a-sphere position="0 -.105 0" scale=".125 .20 .12" color="#35b78b"></a-sphere>
+            <a-sphere position=".085 -.295 .015" scale=".18 .065 .12" color="#2bc79a"></a-sphere>
+            <a-cone position=".20 -.322 -.05" rotation="0 0 -92" height=".09" radius-bottom=".033" radius-top="0" color="#fff1c9"></a-cone>
+            <a-cone position=".20 -.322 .04" rotation="0 0 -92" height=".09" radius-bottom=".033" radius-top="0" color="#fff1c9"></a-cone>
+          </a-entity>
+          <!-- ตัวกลมและท้อง -->
+          <a-sphere position="-.07 .55 0" scale=".36 .31 .265" color="#35c896"></a-sphere>
+          <a-sphere position=".095 .49 .013" scale=".255 .235 .226" color="#9ce9ac"></a-sphere>
+          <!-- เกล็ดหลัง -->
+          <a-cone position="-.33 .82 0" radius-bottom=".10" radius-top="0" height=".18" color="#b6f17a"></a-cone>
+          <a-cone position="-.15 .88 0" radius-bottom=".105" radius-top="0" height=".19" color="#b6f17a"></a-cone>
+          <a-cone position=".035 .84 0" radius-bottom=".087" radius-top="0" height=".16" color="#b6f17a"></a-cone>
+          <!-- คอ และ หัว -->
+          <a-cylinder position=".24 .75 0" radius=".145" height=".37" rotation="0 0 -28" color="#36c890"></a-cylinder>
+          <a-sphere position=".37 .94 0" scale=".278 .225 .225" color="#41df9f"></a-sphere>
+          <a-sphere position=".555 .856 0" scale=".21 .115 .198" color="#43daa0"></a-sphere>
+          <a-sphere position=".52 .793 0" scale=".179 .045 .18" color="#b3ecb9"></a-sphere>
+          <!-- ตาสองด้าน + ประกายตา -->
+          <a-sphere position=".435 1.00 .204" radius=".072" color="#fffef6"></a-sphere>
+          <a-sphere position=".459 1.004 .260" radius=".036" color="#132439"></a-sphere>
+          <a-sphere position=".472 1.018 .286" radius=".012" color="#ffffff"></a-sphere>
+          <a-sphere position=".435 1.00 -.204" radius=".072" color="#fffef6"></a-sphere>
+          <a-sphere position=".459 1.004 -.260" radius=".036" color="#132439"></a-sphere>
+          <a-sphere position=".472 1.018 -.286" radius=".012" color="#ffffff"></a-sphere>
+          <!-- จมูก -->
+          <a-sphere position=".699 .906 .113" radius=".018" color="#167f64"></a-sphere>
+          <a-sphere position=".699 .906 -.113" radius=".018" color="#167f64"></a-sphere>
+          <!-- แขนเล็ก -->
+          <a-entity id="armFar" position=".27 .66 -.21">
+            <a-sphere position=".07 -.085 0" scale=".07 .115 .065" rotation="0 0 -40" color="#2cb187"></a-sphere>
+            <a-sphere position=".14 -.15 0" scale=".078 .045 .06" color="#2cb187"></a-sphere>
+          </a-entity>
+          <a-entity id="armNear" position=".27 .66 .21">
+            <a-sphere position=".07 -.085 0" scale=".07 .115 .065" rotation="0 0 -40" color="#38ce95"></a-sphere>
+            <a-sphere position=".14 -.15 0" scale=".078 .045 .06" color="#38ce95"></a-sphere>
+          </a-entity>
+          <!-- ปีกเวทมนตร์: ปรากฏเฉพาะโหมดบิน -->
+          <a-entity id="wings" visible="false">
+            <a-entity id="wingNear" position="-.13 .72 .23">
+              <a-triangle vertex-a="0 0 0" vertex-b="-.28 .41 .60" vertex-c="-.49 -.04 .82"
+                material="color:#7cb9ff;side:double;transparent:true;opacity:.86"></a-triangle>
+              <a-triangle vertex-a="0 0 0" vertex-b="-.49 -.04 .82" vertex-c=".20 -.11 .66"
+                material="color:#467dda;side:double;transparent:true;opacity:.89"></a-triangle>
+              <a-cylinder position="-.18 .17 .33" rotation="36 0 -23" height=".77" radius=".013" color="#b6e9ff"></a-cylinder>
+            </a-entity>
+            <a-entity id="wingFar" position="-.13 .72 -.23">
+              <a-triangle vertex-a="0 0 0" vertex-b="-.28 .41 -.60" vertex-c="-.49 -.04 -.82"
+                material="color:#7cb9ff;side:double;transparent:true;opacity:.86"></a-triangle>
+              <a-triangle vertex-a="0 0 0" vertex-b="-.49 -.04 -.82" vertex-c=".20 -.11 -.66"
+                material="color:#467dda;side:double;transparent:true;opacity:.89"></a-triangle>
+              <a-cylinder position="-.18 .17 -.33" rotation="-36 0 -23" height=".77" radius=".013" color="#b6e9ff"></a-cylinder>
+            </a-entity>
+          </a-entity>
+        </a-entity>
+      </a-entity>
+    </a-marker>
+    <a-entity camera></a-entity>
+  </a-scene>
+
+  <!-- ปุ่ม HTML อยู่บนหน้ากล้อง จึงสัมผัสได้ง่ายในมือถือ -->
+  <div class="hud">
+    <div class="top">
+      <div class="brand"><h1>🦖 AR DINO Adventure</h1><small>HIRO MARKER · 3D EXPERIENCE</small></div>
+      <div class="status" id="status"><span class="dot"></span><span id="statusText">กำลังเปิดกล้อง...</span></div>
+    </div>
+    <div class="middle" id="scannerGuide" aria-hidden="true">
+      <div class="target"></div>
+      <div class="tips">ส่องกล้องไปที่ภาพ <strong>Hiro Marker</strong><br>ไดโนเสาร์ 3D จะปรากฏเหนือภาพทันที</div>
+    </div>
+    <div class="bottom">
+      <div class="controls">
+        <div class="speed-line"><label for="speed">⚡ ความเร็วในการวิ่ง / บิน</label><output id="speedText" for="speed">1.5×</output></div>
+        <div class="range-wrap"><span>ช้า</span><input type="range" id="speed" min="0.5" max="3" step="0.1" value="1.5" aria-label="ความเร็ว"><span>เร็ว</span></div>
+        <div class="buttons">
+          <button type="button" id="runBtn" class="primary">⏸️ หยุดวิ่ง</button>
+          <button type="button" id="jumpBtn">🦘 กระโดด</button>
+          <button type="button" id="flyBtn" class="sky" aria-pressed="false">🪽 บิน</button>
+        </div>
+        <div class="info">
+          <div class="hint">💡 คีย์บอร์ด: <strong>Space</strong> กระโดด · <strong>F</strong> บิน · <strong>R</strong> วิ่ง</div>
+          <a class="markerlink" href="https://raw.githubusercontent.com/AR-js-org/AR.js/master/data/images/hiro.png" target="_blank" rel="noopener noreferrer">🖼️ ภาพ Hiro ↗</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="flash" role="status" aria-live="polite"></div>
+
+  <script>
+    'use strict';
+    // ไดโนเสาร์ทำจาก A-Frame primitives ทั้งหมด ไม่ต้องดาวน์โหลดไฟล์ .glb เพิ่ม
+    const $ = id => document.getElementById(id);
+    const state = {
+      speed: 1.5, running: true, previousRun: true, flying: false,
+      markerFound: false, time: 0, jumpAt: -1, boostAt: -1
+    };
+    let notificationTimeout;
+    const refs = {};
+
+    function toast(message) {
+      const box = $('flash');
+      box.textContent = message;
+      box.classList.add('show');
+      clearTimeout(notificationTimeout);
+      notificationTimeout = setTimeout(() => box.classList.remove('show'), 1450);
+    }
+    function updateStatus(text, mode = '') {
+      $('statusText').textContent = text;
+      $('status').className = 'status' + (mode ? ' ' + mode : '');
+    }
+    function syncButtons() {
+      $('runBtn').textContent = state.running ? '⏸️ หยุดวิ่ง' : '▶️ เริ่มวิ่ง';
+      $('runBtn').disabled = state.flying;
+      $('flyBtn').textContent = state.flying ? '🛬 ลงจอด' : '🪽 บิน';
+      $('flyBtn').classList.toggle('active', state.flying);
+      $('flyBtn').setAttribute('aria-pressed', String(state.flying));
+      $('jumpBtn').textContent = state.flying ? '🚀 พุ่งขึ้น' : '🦘 กระโดด';
+    }
+    function toggleRunning() {
+      if (state.flying) return;
+      state.running = !state.running;
+      syncButtons();
+      toast(state.running ? '🦖 เริ่มวิ่งแล้ว!' : '🦖 หยุดพักแล้ว');
+    }
+    function jump() {
+      if (state.flying) {
+        state.boostAt = state.time;
+        toast('🚀 เร่งทะยานขึ้น!');
+      } else if (state.jumpAt < 0 || state.time - state.jumpAt > 0.82) {
+        state.jumpAt = state.time;
+        toast('🦘 กระโดด!');
+      }
+    }
+    function toggleFlight() {
+      if (!state.flying) {
+        state.previousRun = state.running;
+        state.flying = true;
+        state.running = false;
+        state.jumpAt = -1;
+      } else {
+        state.flying = false;
+        state.running = state.previousRun;
+        state.boostAt = -1;
+      }
+      $('wings').setAttribute('visible', state.flying);
+      syncButtons();
+      toast(state.flying ? '🪽 ไดโนเสาร์บินแล้ว!' : '🛬 ลงจอดสำเร็จ!');
+    }
+
+    $('speed').addEventListener('input', event => {
+      state.speed = parseFloat(event.target.value);
+      $('speedText').textContent = state.speed.toFixed(1) + '×';
+    });
+    $('runBtn').addEventListener('click', toggleRunning);
+    $('jumpBtn').addEventListener('click', jump);
+    $('flyBtn').addEventListener('click', toggleFlight);
+    document.addEventListener('keydown', event => {
+      if (event.repeat || event.target?.tagName === 'INPUT') return;
+      if (event.code === 'Space') { event.preventDefault(); jump(); }
+      else if (event.code === 'KeyF') toggleFlight();
+      else if (event.code === 'KeyR') toggleRunning();
+    });
+
+    // ใช้ markerFound / markerLost เพื่อแสดงสถานะที่ถูกต้อง
+    const marker = $('hiroMarker');
+    marker.addEventListener('markerFound', () => {
+      state.markerFound = true;
+      updateStatus('พบ Hiro Marker แล้ว!', 'found');
+      $('scannerGuide').classList.add('hidden');
+    });
+    marker.addEventListener('markerLost', () => {
+      state.markerFound = false;
+      updateStatus('กำลังค้นหา Hiro Marker');
+      $('scannerGuide').classList.remove('hidden');
+    });
+
+    function applyRotation(el, x, y, z) {
+      if (!el) return;
+      // แก้ object3D โดยตรง เพื่อลื่นไหลและไม่สร้าง DOM attributes ซ้ำทุกเฟรม
+      el.object3D.rotation.set(x * Math.PI / 180, y * Math.PI / 180, z * Math.PI / 180);
+    }
+    const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
+    let lastFrame = 0;
+    function frame(timestamp) {
+      const dt = lastFrame ? Math.min((timestamp - lastFrame) / 1000, .05) : 0;
+      lastFrame = timestamp;
+      state.time += dt;
+      const t = state.time;
+      const rate = state.speed;
+      const gait = t * 9 * rate;
+      const running = state.running && !state.flying;
+      const s = running ? Math.sin(gait) : 0;
+
+      const root = $('dinoRoot');
+      const body = $('dinoBody');
+      if (root && body && root.object3D && body.object3D) {
+        let bounce = running ? .023 * Math.abs(Math.sin(gait)) : 0;
+        let jumpY = 0;
+        if (!state.flying && state.jumpAt >= 0) {
+          const p = (t - state.jumpAt) / .82;
+          if (p < 1) jumpY = .43 * Math.sin(Math.PI * clamp(p, 0, 1));
+          else state.jumpAt = -1;
+        }
+        let flightY = 0;
+        if (state.flying) {
+          flightY = .36 + .09 * Math.sin(t * rate * 2.2);
+          if (state.boostAt >= 0) {
+            const p = (t - state.boostAt) / .8;
+            if (p < 1) flightY += .32 * Math.sin(Math.PI * clamp(p, 0, 1));
+            else state.boostAt = -1;
+          }
+        }
+        root.object3D.position.set(running ? .045 * Math.sin(gait / 2) : 0, bounce + jumpY + flightY, 0);
+        body.object3D.rotation.z = (state.flying ? 9 + 3 * Math.sin(t * 2) : running ? 2.2 * Math.sin(gait) : 0) * Math.PI / 180;
+
+        // ขาและแขนแกว่งสลับจังหวะตอนวิ่ง
+        applyRotation($('legNear'), 0, 0, running ? 31 * s : state.flying ? 28 : -2);
+        applyRotation($('legFar'), 0, 0, running ? -31 * s : state.flying ? -21 : 2);
+        applyRotation($('armNear'), 0, 0, running ? -19 * s : state.flying ? 31 : -4);
+        applyRotation($('armFar'), 0, 0, running ? 19 * s : state.flying ? 22 : 4);
+        applyRotation($('tail'), 0, 4 * Math.sin(t * 3), state.flying ? -5 : running ? 7 * Math.sin(gait / 2) : 2 * Math.sin(t * 2));
+        // กระพือปีกในขณะบิน
+        const flap = state.flying ? 24 * Math.sin(t * (5.5 + rate * 2)) : 0;
+        applyRotation($('wingNear'), state.flying ? 12 + flap : 0, 0, 0);
+        applyRotation($('wingFar'), state.flying ? -12 - flap : 0, 0, 0);
+      }
+      requestAnimationFrame(frame);
+    }
+    syncButtons();
+    requestAnimationFrame(frame);
+
+    window.addEventListener('load', () => {
+      if (!window.AFRAME || !window.THREE) {
+        updateStatus('โหลด AR ไม่สำเร็จ ตรวจสอบอินเทอร์เน็ต', 'error');
+        return;
+      }
+      if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+        updateStatus('กล้องต้องใช้ HTTPS หรือ localhost', 'error');
+      } else {
+        updateStatus('กำลังค้นหา Hiro Marker');
+      }
+    });
+    window.addEventListener('unhandledrejection', event => {
+      if (/permission|notallowed|device|webcam|camera/i.test(String(event.reason || ''))) {
+        updateStatus('เปิดกล้องไม่ได้: ตรวจสอบสิทธิ์กล้อง', 'error');
+      }
+    });
+  </script>
+</body>
+</html>
